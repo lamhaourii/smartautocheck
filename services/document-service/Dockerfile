@@ -8,7 +8,7 @@ RUN apk add --no-cache \
     tesseract-ocr-data-fra
 
 COPY package*.json ./
-RUN npm ci --only=production
+RUN npm install --only=production
 
 FROM node:18-alpine
 WORKDIR /app

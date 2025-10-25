@@ -19,7 +19,7 @@ services:
       retries: 5
 
   kafka:
-    image: confluentinc/cp-kafka:latest
+    image: confluentinc/cp-kafka:7.4.0
     container_name: smartautocheck-kafka
     depends_on:
       zookeeper:
@@ -60,7 +60,7 @@ services:
     networks:
       - smartautocheck-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U smartautocheck"]
+      test: ["CMD-SHELL", "pg_isready -U smartautocheck -d smartautocheck_db"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -79,7 +79,7 @@ services:
     networks:
       - smartautocheck-network
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok", "-u", "smartautocheck", "-p", "smartautocheck_pass", "--authenticationDatabase", "admin"]
       interval: 10s
       timeout: 5s
       retries: 5
