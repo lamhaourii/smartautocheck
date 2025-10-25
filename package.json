@@ -1,0 +1,21 @@
+{
+  "name": "smartautocheck",
+  "version": "1.0.0",
+  "description": "Microservices-based Technical Inspection Center Management System",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "services/*",
+    "shared/*"
+  ],
+  "scripts": {
+    "dev": "docker-compose up",
+    "dev:frontend": "cd frontend && npm run dev",
+    "build": "docker-compose build",
+    "down": "docker-compose down",
+    "logs": "docker-compose logs -f"
+  },
+  "keywords": ["microservices", "kafka", "vehicle-inspection"],
+  "author": "SmartAutoCheck Team",
+  "license": "MIT"
+}

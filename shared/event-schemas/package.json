@@ -1,0 +1,10 @@
+{
+  "name": "@smartautocheck/event-schemas",
+  "version": "1.0.0",
+  "description": "Event schema definitions for SmartAutoCheck",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"No tests yet\""
+  },
+  "dependencies": {}
+}

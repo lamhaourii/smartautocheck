@@ -1,0 +1,362 @@
+version: '3.8'
+
+services:
+  # Infrastructure Services
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    container_name: smartautocheck-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      - smartautocheck-network
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    container_name: smartautocheck-kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+    networks:
+      - smartautocheck-network
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: smartautocheck-postgres
+    environment:
+      POSTGRES_USER: smartautocheck
+      POSTGRES_PASSWORD: smartautocheck_pass
+      POSTGRES_DB: smartautocheck_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./services/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - smartautocheck-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smartautocheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mongodb:
+    image: mongo:7
+    container_name: smartautocheck-mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: smartautocheck
+      MONGO_INITDB_ROOT_PASSWORD: smartautocheck_pass
+      MONGO_INITDB_DATABASE: smartautocheck_db
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - smartautocheck-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: smartautocheck-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - smartautocheck-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Microservices
+  user-service:
+    build:
+      context: ./services/user-service
+      dockerfile: Dockerfile
+    container_name: smartautocheck-user-service
+    ports:
+      - "3001:3000"
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_URL: postgresql://smartautocheck:smartautocheck_pass@postgres:5432/smartautocheck_db
+      JWT_SECRET: your-super-secret-jwt-key-change-in-production
+      KAFKA_BROKERS: kafka:9092
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - smartautocheck-network
+    restart: unless-stopped
+
+  appointment-service:
+    build:
+      context: ./services/appointment-service
+      dockerfile: Dockerfile
+    container_name: smartautocheck-appointment-service
+    ports:
+      - "3002:3000"
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_URL: postgresql://smartautocheck:smartautocheck_pass@postgres:5432/smartautocheck_db
+      KAFKA_BROKERS: kafka:9092
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - smartautocheck-network
+    restart: unless-stopped
+
+  payment-service:
+    build:
+      context: ./services/payment-service
+      dockerfile: Dockerfile
+    container_name: smartautocheck-payment-service
+    ports:
+      - "3003:3000"
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_URL: postgresql://smartautocheck:smartautocheck_pass@postgres:5432/smartautocheck_db
+      KAFKA_BROKERS: kafka:9092
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - smartautocheck-network
+    restart: unless-stopped
+
+  document-service:
+    build:
+      context: ./services/document-service
+      dockerfile: Dockerfile
+    container_name: smartautocheck-document-service
+    ports:
+      - "3004:3000"
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      MONGODB_URI: mongodb://smartautocheck:smartautocheck_pass@mongodb:27017/smartautocheck_db?authSource=admin
+      KAFKA_BROKERS: kafka:9092
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - smartautocheck-network
+    restart: unless-stopped
+
+  inspection-service:
+    build:
+      context: ./services/inspection-service
+      dockerfile: Dockerfile
+    container_name: smartautocheck-inspection-service
+    ports:
+      - "3005:3000"
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_URL: postgresql://smartautocheck:smartautocheck_pass@postgres:5432/smartautocheck_db
+      KAFKA_BROKERS: kafka:9092
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - smartautocheck-network
+    restart: unless-stopped
+
+  certificate-service:
+    build:
+      context: ./services/certificate-service
+      dockerfile: Dockerfile
+    container_name: smartautocheck-certificate-service
+    ports:
+      - "3006:3000"
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_URL: postgresql://smartautocheck:smartautocheck_pass@postgres:5432/smartautocheck_db
+      KAFKA_BROKERS: kafka:9092
+      S3_BUCKET: smartautocheck-certificates
+      S3_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - smartautocheck-network
+    restart: unless-stopped
+
+  invoice-service:
+    build:
+      context: ./services/invoice-service
+      dockerfile: Dockerfile
+    container_name: smartautocheck-invoice-service
+    ports:
+      - "3007:3000"
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_URL: postgresql://smartautocheck:smartautocheck_pass@postgres:5432/smartautocheck_db
+      KAFKA_BROKERS: kafka:9092
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - smartautocheck-network
+    restart: unless-stopped
+
+  chatbot-service:
+    build:
+      context: ./services/chatbot-service
+      dockerfile: Dockerfile
+    container_name: smartautocheck-chatbot-service
+    ports:
+      - "3008:3000"
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      MONGODB_URI: mongodb://smartautocheck:smartautocheck_pass@mongodb:27017/smartautocheck_db?authSource=admin
+      KAFKA_BROKERS: kafka:9092
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - smartautocheck-network
+    restart: unless-stopped
+
+  notification-service:
+    build:
+      context: ./services/notification-service
+      dockerfile: Dockerfile
+    container_name: smartautocheck-notification-service
+    ports:
+      - "3009:3000"
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      REDIS_URL: redis://redis:6379
+      KAFKA_BROKERS: kafka:9092
+      SENDGRID_API_KEY: ${SENDGRID_API_KEY}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
+      TWILIO_PHONE_NUMBER: ${TWILIO_PHONE_NUMBER}
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - smartautocheck-network
+    restart: unless-stopped
+
+  api-gateway:
+    build:
+      context: ./services/api-gateway
+      dockerfile: Dockerfile
+    container_name: smartautocheck-api-gateway
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      USER_SERVICE_URL: http://user-service:3000
+      APPOINTMENT_SERVICE_URL: http://appointment-service:3000
+      PAYMENT_SERVICE_URL: http://payment-service:3000
+      DOCUMENT_SERVICE_URL: http://document-service:3000
+      INSPECTION_SERVICE_URL: http://inspection-service:3000
+      CERTIFICATE_SERVICE_URL: http://certificate-service:3000
+      INVOICE_SERVICE_URL: http://invoice-service:3000
+      CHATBOT_SERVICE_URL: http://chatbot-service:3000
+      NOTIFICATION_SERVICE_URL: http://notification-service:3000
+    depends_on:
+      - user-service
+      - appointment-service
+      - payment-service
+      - document-service
+      - inspection-service
+      - certificate-service
+      - invoice-service
+      - chatbot-service
+      - notification-service
+    networks:
+      - smartautocheck-network
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: smartautocheck-frontend
+    ports:
+      - "3010:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:3000
+    depends_on:
+      - api-gateway
+    networks:
+      - smartautocheck-network
+    restart: unless-stopped
+
+networks:
+  smartautocheck-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  mongodb_data:
+  redis_data:

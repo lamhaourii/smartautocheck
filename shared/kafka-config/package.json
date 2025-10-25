@@ -1,0 +1,13 @@
+{
+  "name": "@smartautocheck/kafka-config",
+  "version": "1.0.0",
+  "description": "Shared Kafka configuration and utilities",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"No tests yet\""
+  },
+  "dependencies": {
+    "kafkajs": "^2.2.4",
+    "uuid": "^9.0.1"
+  }
+}
