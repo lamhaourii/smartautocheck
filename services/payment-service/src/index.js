@@ -18,7 +18,8 @@ app.get('/health', (req, res) => {
   res.json({ status: 'healthy', service: 'payment-service', timestamp: new Date().toISOString() });
 });
 
-app.use('/api/payments', paymentRoutes);
+// Mount routes at root level (since API Gateway handles /api/payments prefix)
+app.use('/', paymentRoutes);
 app.use(errorHandler);
 
 (async () => {

@@ -1,12 +1,14 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Calendar, Clock, Car, Upload, Check, ArrowRight, ArrowLeft } from 'lucide-react'
+import { Calendar, Clock, Car, Upload, Check, ArrowRight, ArrowLeft, CreditCard } from 'lucide-react'
 import Link from 'next/link'
 
 export default function BookingPage() {
   const [step, setStep] = useState(1)
+  const [paypalLoaded, setPaypalLoaded] = useState(false)
+  const [bookingId, setBookingId] = useState('')
   const [formData, setFormData] = useState({
     serviceType: '',
     date: '',
@@ -22,7 +24,8 @@ export default function BookingPage() {
     { num: 1, title: 'Service', icon: Car },
     { num: 2, title: 'Schedule', icon: Calendar },
     { num: 3, title: 'Vehicle Info', icon: Car },
-    { num: 4, title: 'Documents', icon: Upload }
+    { num: 4, title: 'Documents', icon: Upload },
+    { num: 5, title: 'Payment', icon: CreditCard }
   ]
 
   const services = [
@@ -39,16 +42,80 @@ export default function BookingPage() {
   ]
 
   const handleNext = () => {
-    if (step < 4) setStep(step + 1)
+    if (step < 5) setStep(step + 1)
   }
 
   const handleBack = () => {
     if (step > 1) setStep(step - 1)
   }
 
-  const handleSubmit = () => {
-    console.log('Booking submitted:', formData)
-    alert('Booking submitted! Redirecting to payment...')
+  const handleSubmit = async () => {
+    // Move to payment step
+    setStep(5)
+  }
+
+  // Load PayPal SDK
+  useEffect(() => {
+    if (step === 5 && !paypalLoaded) {
+      const script = document.createElement('script')
+      script.src = 'https://www.paypal.com/sdk/js?client-id=AeFunx4cWx2zm6aqtLmd7Zm4G4zGZ2BVLsRh83jGxqOPzPss6fMS2PRilid05SAUTipnYNPo_NghJrDX&currency=USD'
+      script.addEventListener('load', () => {
+        setPaypalLoaded(true)
+        renderPayPalButton()
+      })
+      document.body.appendChild(script)
+    }
+  }, [step])
+
+  const getServicePrice = () => {
+    const service = services.find(s => s.id === formData.serviceType)
+    return service ? service.price : 50
+  }
+
+  const renderPayPalButton = () => {
+    const amount = getServicePrice()
+    
+    if (typeof window !== 'undefined' && (window as any).paypal) {
+      (window as any).paypal.Buttons({
+        createOrder: async () => {
+          try {
+            const response = await fetch('http://localhost:3003/create-order', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ amount, currency: 'USD' })
+            })
+            const data = await response.json()
+            return data.data.orderId
+          } catch (error) {
+            console.error('Error creating order:', error)
+            alert('Error creating payment order. Please try again.')
+          }
+        },
+        onApprove: async (data: any) => {
+          try {
+            // Here you would normally:
+            // 1. Create user account if needed
+            // 2. Create appointment
+            // 3. Process payment with orderId
+            
+            alert(`Payment approved! Order ID: ${data.orderID}\n\nIn production, this would:\n1. Create your appointment\n2. Process payment\n3. Send confirmation email\n4. Redirect to dashboard`)
+            
+            // Redirect to home
+            window.location.href = '/'
+          } catch (error) {
+            console.error('Error processing payment:', error)
+            alert('Payment approved but error saving booking. Please contact support with Order ID: ' + data.orderID)
+          }
+        },
+        onError: (err: any) => {
+          console.error('PayPal error:', err)
+          alert('Payment failed. Please try again.')
+        },
+        onCancel: () => {
+          alert('Payment cancelled. You can try again when ready.')
+        }
+      }).render('#paypal-button-container')
+    }
   }
 
   return (
@@ -266,6 +333,69 @@ export default function BookingPage() {
               </div>
             </div>
           )}
+
+          {/* Step 5: Payment */}
+          {step === 5 && (
+            <div>
+              <h2 className="text-3xl font-bold text-gray-900 mb-6">Complete Payment</h2>
+              
+              <div className="mb-8 p-6 bg-gradient-to-r from-primary-50 to-blue-50 rounded-xl">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Booking Summary</h3>
+                <div className="space-y-2 text-gray-700">
+                  <div className="flex justify-between">
+                    <span>Service:</span>
+                    <span className="font-semibold">
+                      {services.find(s => s.id === formData.serviceType)?.name}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Date & Time:</span>
+                    <span className="font-semibold">{formData.date} at {formData.time}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Vehicle:</span>
+                    <span className="font-semibold">
+                      {formData.make} {formData.model} ({formData.year})
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Registration:</span>
+                    <span className="font-semibold">{formData.vehicleReg}</span>
+                  </div>
+                  <div className="border-t border-gray-300 mt-4 pt-4 flex justify-between text-xl">
+                    <span className="font-bold">Total:</span>
+                    <span className="font-bold text-primary-600">
+                      ${getServicePrice()}.00 USD
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mb-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Payment Method</h3>
+                <p className="text-gray-600 mb-4">
+                  Pay securely with PayPal. You can use your PayPal balance, bank account, or credit/debit card.
+                </p>
+              </div>
+
+              {/* PayPal Button Container */}
+              <div id="paypal-button-container" className="mb-6 max-w-md mx-auto"></div>
+
+              {!paypalLoaded && (
+                <div className="text-center py-8">
+                  <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+                  <p className="text-gray-600 mt-4">Loading payment options...</p>
+                </div>
+              )}
+
+              <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+                <p className="text-xs text-gray-600 text-center">
+                  🔒 Your payment information is processed securely by PayPal. 
+                  We never store your payment details.
+                </p>
+              </div>
+            </div>
+          )}
         </motion.div>
 
         {/* Navigation Buttons */}
@@ -294,15 +424,15 @@ export default function BookingPage() {
               Next
               <ArrowRight className="ml-2 h-5 w-5" />
             </button>
-          ) : (
+          ) : step === 4 ? (
             <button
               onClick={handleSubmit}
               className="btn-primary inline-flex items-center"
             >
-              Complete Booking
-              <Check className="ml-2 h-5 w-5" />
+              Proceed to Payment
+              <ArrowRight className="ml-2 h-5 w-5" />
             </button>
-          )}
+          ) : null}
         </div>
       </div>
     </div>

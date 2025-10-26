@@ -22,11 +22,12 @@ Returns JWT token for authentication.
 - `PUT /api/appointments/:id` - Update
 - `DELETE /api/appointments/:id` - Cancel
 
-## Payments
+## Payments (PayPal)
 
-- `POST /api/payments` - Process payment with Stripe
+- `POST /api/payments/create-order` - Create PayPal order
+- `POST /api/payments` - Capture payment (requires orderId)
 - `GET /api/payments/:id` - Get status
-- `POST /api/payments/:id/refund` - Refund
+- `POST /api/payments/:id/refund` - Refund payment
 
 ## Documents (OCR)
 

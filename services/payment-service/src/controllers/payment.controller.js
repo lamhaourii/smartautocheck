@@ -1,5 +1,6 @@
 const db = require('../config/database');
-const stripe = require('../config/stripe');
+const paypal = require('@paypal/checkout-server-sdk');
+const { client: paypalClient } = require('../config/paypal');
 const Joi = require('joi');
 const { kafkaService, TOPICS } = require('../config/kafka');
 
@@ -7,7 +8,7 @@ const paymentSchema = Joi.object({
   appointmentId: Joi.string().uuid().required(),
   amount: Joi.number().positive().required(),
   currency: Joi.string().default('USD'),
-  paymentMethodId: Joi.string().required()
+  orderId: Joi.string().required() // PayPal order ID from frontend
 });
 
 class PaymentController {
@@ -18,16 +19,33 @@ class PaymentController {
         return res.status(400).json({ success: false, message: 'Validation error', errors: error.details });
       }
 
-      const { appointmentId, amount, currency, paymentMethodId } = value;
+      const { appointmentId, amount, currency, orderId } = value;
 
-      // Create payment intent with Stripe
-      const paymentIntent = await stripe.paymentIntents.create({
-        amount: Math.round(amount * 100), // Convert to cents
-        currency: currency.toLowerCase(),
-        payment_method: paymentMethodId,
-        confirm: true,
-        automatic_payment_methods: { enabled: true, allow_redirects: 'never' }
-      });
+      const client = paypalClient();
+      let paymentStatus = 'completed';
+      let transactionId = orderId;
+
+      // Capture the PayPal order
+      if (client) {
+        try {
+          const request = new paypal.orders.OrdersCaptureRequest(orderId);
+          request.requestBody({});
+          const capture = await client.execute(request);
+          
+          paymentStatus = capture.result.status === 'COMPLETED' ? 'completed' : 'pending';
+          transactionId = capture.result.id;
+        } catch (paypalError) {
+          console.error('PayPal capture error:', paypalError);
+          return res.status(400).json({
+            success: false,
+            message: 'PayPal payment capture failed',
+            error: paypalError.message
+          });
+        }
+      } else {
+        // Mock mode for testing without PayPal credentials
+        console.log('PayPal mock mode: Payment processed');
+      }
 
       // Save payment to database
       const query = `
@@ -40,10 +58,10 @@ class PaymentController {
         appointmentId,
         amount,
         currency,
-        paymentIntent.status === 'succeeded' ? 'completed' : 'pending',
-        'stripe',
-        paymentIntent.id,
-        JSON.stringify({ stripePaymentIntentId: paymentIntent.id })
+        paymentStatus,
+        'paypal',
+        transactionId,
+        JSON.stringify({ paypalOrderId: orderId })
       ]);
 
       const payment = result.rows[0];
@@ -72,6 +90,48 @@ class PaymentController {
         success: true,
         message: 'Payment processed successfully',
         data: payment
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  static async createOrder(req, res, next) {
+    try {
+      const { amount, currency = 'USD' } = req.body;
+
+      if (!amount || amount <= 0) {
+        return res.status(400).json({ success: false, message: 'Invalid amount' });
+      }
+
+      const client = paypalClient();
+
+      if (!client) {
+        // Mock mode - return fake order ID
+        return res.json({
+          success: true,
+          data: { orderId: `MOCK-ORDER-${Date.now()}` }
+        });
+      }
+
+      // Create PayPal order
+      const request = new paypal.orders.OrdersCreateRequest();
+      request.prefer("return=representation");
+      request.requestBody({
+        intent: 'CAPTURE',
+        purchase_units: [{
+          amount: {
+            currency_code: currency,
+            value: amount.toFixed(2)
+          }
+        }]
+      });
+
+      const order = await client.execute(request);
+
+      res.json({
+        success: true,
+        data: { orderId: order.result.id }
       });
     } catch (err) {
       next(err);
@@ -111,10 +171,37 @@ class PaymentController {
         return res.status(400).json({ success: false, message: 'Only completed payments can be refunded' });
       }
 
-      // Process refund with Stripe
-      const refund = await stripe.refunds.create({
-        payment_intent: payment.transaction_id
-      });
+      const client = paypalClient();
+      let refundId = `refund-${Date.now()}`;
+
+      // Process refund with PayPal
+      if (client) {
+        try {
+          // Get capture ID from the order
+          const metadata = JSON.parse(payment.metadata || '{}');
+          const captureId = payment.transaction_id;
+          
+          const request = new paypal.payments.CapturesRefundRequest(captureId);
+          request.requestBody({
+            amount: {
+              value: payment.amount.toString(),
+              currency_code: payment.currency
+            }
+          });
+          
+          const refund = await client.execute(request);
+          refundId = refund.result.id;
+        } catch (paypalError) {
+          console.error('PayPal refund error:', paypalError);
+          return res.status(400).json({
+            success: false,
+            message: 'PayPal refund failed',
+            error: paypalError.message
+          });
+        }
+      } else {
+        console.log('PayPal mock mode: Refund processed');
+      }
 
       // Update payment status
       const updateQuery = 'UPDATE payments SET status = $1 WHERE id = $2 RETURNING *';
@@ -126,7 +213,7 @@ class PaymentController {
         paymentId: payment.id,
         appointmentId: payment.appointment_id,
         amount: payment.amount,
-        refundId: refund.id
+        refundId: refundId
       });
 
       res.json({

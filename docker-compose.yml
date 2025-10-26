@@ -158,8 +158,9 @@ services:
       PORT: 3000
       DATABASE_URL: postgresql://smartautocheck:smartautocheck_pass@postgres:5432/smartautocheck_db
       KAFKA_BROKERS: kafka:9092
-      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
-      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      PAYPAL_CLIENT_ID: ${PAYPAL_CLIENT_ID:-AeFunx4cWx2zm6aqtLmd7Zm4G4zGZ2BVLsRh83jGxqOPzPss6fMS2PRilid05SAUTipnYNPo_NghJrDX}
+      PAYPAL_CLIENT_SECRET: ${PAYPAL_CLIENT_SECRET:-EI_3xWZTdKXVuCGWA_ScRqUw4JHB4sdUgqecogjoWkttB6_NIg97iaDWdfonSg4_ILRARZVyodnS2-6F}
+      PAYPAL_MODE: ${PAYPAL_MODE:-sandbox}
     depends_on:
       postgres:
         condition: service_healthy
