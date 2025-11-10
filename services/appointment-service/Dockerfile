@@ -4,7 +4,7 @@ FROM node:18-alpine AS builder
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm install --only=production
+RUN npm install --only=production --no-audit --no-fund
 
 FROM node:18-alpine
 

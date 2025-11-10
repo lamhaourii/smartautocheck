@@ -1,0 +1,149 @@
+%% SmartAutoCheck - Container Diagram (C4 Level 2)
+%% Shows all microservices, databases, and infrastructure components
+
+graph TB
+    subgraph External["External Systems"]
+        Customer[👤 Customer]
+        Inspector[👨‍🔧 Inspector]
+        Admin[👨‍💼 Admin]
+        PayPal[💳 PayPal API]
+        SendGrid[📧 SendGrid API]
+        Twilio[📱 Twilio API]
+    end
+    
+    subgraph LoadBalancer["Load Balancing Layer"]
+        Nginx[Nginx<br/>Load Balancer<br/>Port 80]
+    end
+    
+    subgraph ApplicationLayer["Application Services (7 Microservices)"]
+        Gateway[API Gateway<br/>Circuit Breaker +<br/>Rate Limiter<br/>Port 3000]
+        
+        UserService[User Service<br/>Authentication<br/>JWT Tokens<br/>Port 3001]
+        
+        AppointmentService[Appointment Service<br/>Booking &<br/>Scheduling<br/>Port 3002]
+        
+        PaymentService[Payment Service<br/>PayPal Integration<br/>Invoice Generation<br/>Port 3003]
+        
+        InspectionService[Inspection Service<br/>Vehicle Checks<br/>WebSocket Updates<br/>Port 3005]
+        
+        CertificateService[Certificate Service<br/>PDF Generation<br/>QR Codes<br/>Port 3006]
+        
+        NotificationService[Notification Service<br/>Email & SMS<br/>Queue Processing<br/>Port 3009]
+    end
+    
+    subgraph Frontend["Frontend Layer"]
+        NextJS[Next.js Frontend<br/>React 18<br/>TailwindCSS<br/>Port 3010]
+    end
+    
+    subgraph MessageBroker["Event Streaming"]
+        Kafka[Apache Kafka<br/>15+ Event Types<br/>2 Partitions<br/>Port 9092]
+        KafkaUI[Kafka UI<br/>Topic Monitoring<br/>Port 8080]
+    end
+    
+    subgraph DataLayer["Data Persistence"]
+        PostgresMaster[(PostgreSQL Master<br/>Write Operations<br/>Port 5432)]
+        PostgresSlave[(PostgreSQL Slave<br/>Read Operations<br/>Port 5433)]
+        MongoDB[(MongoDB<br/>Notifications Log<br/>Port 27017)]
+        Redis[(Redis<br/>Rate Limiting<br/>Caching<br/>Port 6379)]
+    end
+    
+    subgraph ObservabilityLayer["Monitoring & Discovery"]
+        Jaeger[Jaeger<br/>Distributed Tracing<br/>UI Port 16686]
+        Consul[Consul<br/>Service Discovery<br/>Health Checks<br/>UI Port 8500]
+    end
+    
+    %% User Interactions
+    Customer --> NextJS
+    Inspector --> NextJS
+    Admin --> NextJS
+    
+    %% Frontend to Gateway
+    NextJS --> Nginx
+    
+    %% Load Balancer to Gateways
+    Nginx -->|Round Robin| Gateway
+    
+    %% Gateway to Services (via Service Discovery)
+    Gateway -.->|Discovers| Consul
+    Gateway -->|Proxies with<br/>Circuit Breaker| UserService
+    Gateway -->|Proxies with<br/>Circuit Breaker| AppointmentService
+    Gateway -->|Proxies with<br/>Circuit Breaker| PaymentService
+    Gateway -->|Proxies with<br/>Circuit Breaker| InspectionService
+    Gateway -->|Proxies with<br/>Circuit Breaker| CertificateService
+    Gateway -->|Proxies with<br/>Circuit Breaker| NotificationService
+    
+    %% Service Registration
+    UserService -.->|Registers| Consul
+    AppointmentService -.->|Registers| Consul
+    PaymentService -.->|Registers| Consul
+    InspectionService -.->|Registers| Consul
+    CertificateService -.->|Registers| Consul
+    NotificationService -.->|Registers| Consul
+    
+    %% Services to Databases (Master for writes, Slave for reads)
+    UserService -->|Write| PostgresMaster
+    UserService -->|Read| PostgresSlave
+    AppointmentService -->|Write| PostgresMaster
+    AppointmentService -->|Read| PostgresSlave
+    PaymentService -->|Write| PostgresMaster
+    PaymentService -->|Read| PostgresSlave
+    InspectionService -->|Write| PostgresMaster
+    InspectionService -->|Read| PostgresSlave
+    CertificateService -->|Write| PostgresMaster
+    CertificateService -->|Read| PostgresSlave
+    NotificationService -->|Read/Write| MongoDB
+    
+    %% Database Replication
+    PostgresMaster -.->|Streaming<br/>Replication| PostgresSlave
+    
+    %% Services to Redis
+    Gateway -->|Rate Limiting| Redis
+    UserService -->|Session Cache| Redis
+    AppointmentService -->|Availability Cache| Redis
+    PaymentService -->|Idempotency Keys| Redis
+    
+    %% Event-Driven Communication via Kafka
+    UserService -->|user.* events| Kafka
+    AppointmentService -->|appointment.* events| Kafka
+    PaymentService -->|payment.* events| Kafka
+    InspectionService -->|inspection.* events| Kafka
+    CertificateService -->|certificate.* events| Kafka
+    
+    Kafka -->|Consumes events| NotificationService
+    Kafka -->|Consumes events| CertificateService
+    Kafka -->|Consumes events| PaymentService
+    
+    %% Distributed Tracing
+    Gateway -.->|Traces| Jaeger
+    UserService -.->|Traces| Jaeger
+    AppointmentService -.->|Traces| Jaeger
+    PaymentService -.->|Traces| Jaeger
+    InspectionService -.->|Traces| Jaeger
+    CertificateService -.->|Traces| Jaeger
+    NotificationService -.->|Traces| Jaeger
+    
+    %% External API Calls
+    PaymentService -->|Process Payments| PayPal
+    NotificationService -->|Send Emails| SendGrid
+    NotificationService -->|Send SMS| Twilio
+    
+    %% Monitoring Tools
+    Admin --> Jaeger
+    Admin --> Consul
+    Admin --> KafkaUI
+    
+    %% Styles
+    style Gateway fill:#0ea5e9,stroke:#0284c7,stroke-width:3px,color:#fff
+    style UserService fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
+    style AppointmentService fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
+    style PaymentService fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
+    style InspectionService fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
+    style CertificateService fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
+    style NotificationService fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
+    style Kafka fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
+    style PostgresMaster fill:#10b981,stroke:#059669,stroke-width:2px,color:#fff
+    style PostgresSlave fill:#10b981,stroke:#059669,stroke-width:2px,color:#fff
+    style Redis fill:#ef4444,stroke:#dc2626,stroke-width:2px,color:#fff
+    style Jaeger fill:#ec4899,stroke:#db2777,stroke-width:2px,color:#fff
+    style Consul fill:#06b6d4,stroke:#0891b2,stroke-width:2px,color:#fff
+    style Nginx fill:#22c55e,stroke:#16a34a,stroke-width:2px,color:#fff

@@ -1,0 +1,164 @@
+%% Booking Flow Sequence Diagram
+%% Shows complete flow from booking to payment to notifications
+
+sequenceDiagram
+    actor Customer
+    participant Frontend as Next.js Frontend
+    participant Nginx as Nginx LB
+    participant Gateway as API Gateway<br/>(Circuit Breaker)
+    participant Consul as Consul<br/>(Service Discovery)
+    participant AppointmentSvc as Appointment Service
+    participant PaymentSvc as Payment Service
+    participant Kafka as Kafka
+    participant NotificationSvc as Notification Service
+    participant DB as PostgreSQL<br/>(Master/Slave)
+    participant Redis as Redis Cache
+    participant PayPal as PayPal API
+    participant Email as SendGrid
+    
+    Note over Customer,Email: Phase 1: Check Availability
+    
+    Customer->>+Frontend: Opens booking page
+    Frontend->>+Nginx: GET /api/appointments/available?date=2024-12-31
+    Nginx->>+Gateway: Forward to Gateway (round-robin)
+    
+    Note over Gateway: Check rate limit in Redis
+    Gateway->>+Redis: INCR rate_limit:customer:ip
+    Redis-->>-Gateway: Current count: 45/100
+    
+    Note over Gateway: Discover service via Consul
+    Gateway->>+Consul: Discover appointment-service
+    Consul-->>-Gateway: http://appointment-service:3000
+    
+    Note over Gateway: Create distributed trace
+    Gateway->>Gateway: Start span: GET /available
+    
+    Note over Gateway: Circuit Breaker wraps request
+    Gateway->>+AppointmentSvc: GET /available?date=2024-12-31<br/>[X-B3-TraceId, X-Request-ID]
+    
+    Note over AppointmentSvc: Read from slave for scalability
+    AppointmentSvc->>+DB: SELECT available_slots<br/>FROM appointments (SLAVE)
+    DB-->>-AppointmentSvc: [10:00, 11:00, 14:00, 15:00]
+    
+    Note over AppointmentSvc: Cache result for 5 minutes
+    AppointmentSvc->>Redis: SET availability:2024-12-31<br/>TTL 300s
+    
+    AppointmentSvc-->>-Gateway: 200 OK {slots: [...]}
+    Gateway->>Gateway: End span (duration: 85ms)
+    Gateway-->>-Nginx: 200 OK {slots: [...]}
+    Nginx-->>-Frontend: 200 OK {slots: [...]}
+    Frontend-->>-Customer: Shows available time slots
+    
+    Note over Customer,Email: Phase 2: Create Booking
+    
+    Customer->>+Frontend: Selects slot, enters vehicle details
+    Frontend->>+Nginx: POST /api/appointments<br/>{date, time, vehicleReg, ...}
+    Nginx->>+Gateway: Forward request
+    
+    Gateway->>Redis: Check rate limit (booking tier: 20/min)
+    Gateway->>Consul: Discover appointment-service
+    Gateway->>+AppointmentSvc: POST /appointments<br/>[With trace headers]
+    
+    Note over AppointmentSvc: Validate business rules
+    AppointmentSvc->>AppointmentSvc: Check business hours<br/>Prevent double-booking<br/>Validate inspector availability
+    
+    Note over AppointmentSvc: Write to master
+    AppointmentSvc->>+DB: INSERT INTO appointments<br/>(MASTER)
+    DB-->>-AppointmentSvc: appointment_id: uuid-123
+    
+    Note over AppointmentSvc: Generate QR code
+    AppointmentSvc->>AppointmentSvc: Generate QR with HMAC signature<br/>Data: {appointmentId, date, time}
+    
+    Note over AppointmentSvc: Publish event to Kafka
+    AppointmentSvc->>+Kafka: Publish to "appointments-topic"<br/>Event: appointment.created<br/>{appointmentId, customerId, date, qrCode}
+    Kafka-->>-AppointmentSvc: ACK (offset: 1234)
+    
+    AppointmentSvc-->>-Gateway: 201 Created<br/>{id, date, time, qrCode}
+    Gateway-->>-Nginx: 201 Created
+    Nginx-->>-Frontend: 201 Created
+    Frontend-->>-Customer: Booking confirmed!<br/>Shows QR code
+    
+    Note over Customer,Email: Phase 3: Payment Processing
+    
+    Customer->>+Frontend: Proceeds to payment
+    Frontend->>Frontend: Load PayPal SDK
+    Frontend->>+Nginx: POST /api/payments/create-order<br/>{amount: 50}
+    Nginx->>+Gateway: Forward
+    Gateway->>Consul: Discover payment-service
+    Gateway->>+PaymentSvc: POST /create-order
+    
+    Note over PaymentSvc: Create PayPal order
+    PaymentSvc->>+PayPal: POST /v2/checkout/orders<br/>{amount: 50, currency: USD}
+    PayPal-->>-PaymentSvc: {orderId: "5O190127TN364715T"}
+    
+    PaymentSvc-->>-Gateway: 200 OK {orderId}
+    Gateway-->>-Nginx: 200 OK
+    Nginx-->>-Frontend: 200 OK {orderId}
+    
+    Note over Frontend: PayPal popup opens
+    Customer->>PayPal: Approves payment in PayPal UI
+    PayPal-->>Frontend: onApprove callback {orderID}
+    
+    Frontend->>+Nginx: POST /api/payments<br/>{appointmentId, orderId, amount}
+    Nginx->>+Gateway: Forward
+    Gateway->>+PaymentSvc: POST /payments
+    
+    Note over PaymentSvc: Check idempotency (prevent duplicate)
+    PaymentSvc->>+Redis: GET idempotency:orderId
+    Redis-->>-PaymentSvc: null (first time)
+    PaymentSvc->>Redis: SET idempotency:orderId<br/>TTL 24h
+    
+    Note over PaymentSvc: Capture payment
+    PaymentSvc->>+PayPal: POST /v2/checkout/orders/{orderId}/capture
+    PayPal-->>-PaymentSvc: {status: COMPLETED, captureId}
+    
+    Note over PaymentSvc: Save to database
+    PaymentSvc->>+DB: INSERT INTO payments<br/>(MASTER)<br/>{appointmentId, amount, status: completed}
+    DB-->>-PaymentSvc: payment_id
+    
+    Note over PaymentSvc: Generate invoice PDF
+    PaymentSvc->>PaymentSvc: Generate invoice PDF<br/>PDFKit library
+    
+    Note over PaymentSvc: Publish Kafka event
+    PaymentSvc->>+Kafka: Publish to "payments-topic"<br/>Event: payment.completed<br/>{paymentId, appointmentId, amount, invoiceUrl}
+    Kafka-->>-PaymentSvc: ACK
+    
+    PaymentSvc-->>-Gateway: 200 OK {payment, invoice}
+    Gateway-->>-Nginx: 200 OK
+    Nginx-->>-Frontend: 200 OK
+    Frontend-->>-Customer: Payment successful!
+    
+    Note over Customer,Email: Phase 4: Async Notifications (Event-Driven)
+    
+    Note over Kafka,NotificationSvc: Kafka consumer running continuously
+    
+    Kafka->>+NotificationSvc: Consume event:<br/>appointment.created
+    NotificationSvc->>+DB: SELECT customer email, appointment details
+    DB-->>-NotificationSvc: customer data
+    
+    NotificationSvc->>+Email: Send confirmation email<br/>With QR code attachment<br/>Body: "Booking confirmed for {date}"
+    Email-->>-NotificationSvc: Message sent (ID: msg-789)
+    
+    NotificationSvc->>DB: INSERT INTO notifications<br/>(MongoDB)<br/>{type: email, status: sent}
+    NotificationSvc-->>-Kafka: Commit offset
+    
+    Kafka->>+NotificationSvc: Consume event:<br/>payment.completed
+    NotificationSvc->>+DB: SELECT customer, appointment
+    DB-->>-NotificationSvc: data
+    
+    NotificationSvc->>+Email: Send receipt email<br/>With invoice PDF<br/>Body: "Payment receipt ${amount}"
+    Email-->>-NotificationSvc: Message sent
+    
+    NotificationSvc->>DB: INSERT INTO notifications
+    NotificationSvc-->>-Kafka: Commit offset
+    
+    Note over Customer,Email: Customer receives 2 emails:<br/>1) Booking confirmation with QR<br/>2) Payment receipt with invoice
+    
+    Note over Customer,Email: Distributed Systems Patterns Applied:
+    Note over Customer,Email: ✅ Circuit Breaker (Gateway protects from service failures)
+    Note over Customer,Email: ✅ Service Discovery (Consul resolves service locations)
+    Note over Customer,Email: ✅ Distributed Tracing (Jaeger tracks request across services)
+    Note over Customer,Email: ✅ Rate Limiting (Redis enforces global limits)
+    Note over Customer,Email: ✅ Database Replication (Reads from slave, writes to master)
+    Note over Customer,Email: ✅ Event-Driven Architecture (Kafka for async communication)
+    Note over Customer,Email: ✅ Idempotency (Redis prevents duplicate payments)

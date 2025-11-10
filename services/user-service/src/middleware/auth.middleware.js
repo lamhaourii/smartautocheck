@@ -1,29 +1,44 @@
 const jwt = require('jsonwebtoken');
 
 const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
-
-  if (!token) {
-    return res.status(401).json({
-      success: false,
-      message: 'Access token required'
-    });
-  }
-
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded;
-    next();
-  } catch (err) {
-    return res.status(403).json({
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        message: 'Access token required'
+      });
+    }
+
+    jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+      if (err) {
+        if (err.name === 'TokenExpiredError') {
+          return res.status(401).json({
+            success: false,
+            message: 'Token expired',
+            code: 'TOKEN_EXPIRED'
+          });
+        }
+        return res.status(403).json({
+          success: false,
+          message: 'Invalid token'
+        });
+      }
+
+      req.user = user;
+      next();
+    });
+  } catch (error) {
+    return res.status(500).json({
       success: false,
-      message: 'Invalid or expired token'
+      message: 'Authentication error'
     });
   }
 };
 
-const authorizeRoles = (...roles) => {
+const authorize = (...allowedRoles) => {
   return (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({
@@ -32,7 +47,7 @@ const authorizeRoles = (...roles) => {
       });
     }
 
-    if (!roles.includes(req.user.role)) {
+    if (!allowedRoles.includes(req.user.role)) {
       return res.status(403).json({
         success: false,
         message: 'Insufficient permissions'

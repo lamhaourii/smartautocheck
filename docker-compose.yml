@@ -1,7 +1,29 @@
 version: '3.8'
 
 services:
-  # Infrastructure Services
+  # ===========================================================================
+  # INFRASTRUCTURE - Databases & Message Broker
+  # ===========================================================================
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: smartautocheck-postgres
+    environment:
+      POSTGRES_USER: smartautocheck
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: smartautocheck_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - smartautocheck-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smartautocheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   zookeeper:
     image: confluentinc/cp-zookeeper:latest
     container_name: smartautocheck-zookeeper
@@ -35,8 +57,6 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-      KAFKA_LOG_RETENTION_HOURS: 168
-      KAFKA_LOG_SEGMENT_BYTES: 1073741824
     networks:
       - smartautocheck-network
     healthcheck:
@@ -45,82 +65,123 @@ services:
       timeout: 10s
       retries: 5
 
-  postgres:
-    image: postgres:15-alpine
-    container_name: smartautocheck-postgres
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: smartautocheck-kafka-ui
+    ports:
+      - "8080:8080"
     environment:
-      POSTGRES_USER: smartautocheck
-      POSTGRES_PASSWORD: smartautocheck_pass
-      POSTGRES_DB: smartautocheck_db
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./services/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+      KAFKA_CLUSTERS_0_NAME: smartautocheck
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+    depends_on:
+      - kafka
     networks:
       - smartautocheck-network
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U smartautocheck -d smartautocheck_db"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
-  mongodb:
-    image: mongo:7
-    container_name: smartautocheck-mongodb
+  # ===========================================================================
+  # OBSERVABILITY STACK
+  # ===========================================================================
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: smartautocheck-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./infrastructure/prometheus/alerts.yml:/etc/prometheus/alerts.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - smartautocheck-network
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: smartautocheck-grafana
+    ports:
+      - "3006:3000"
     environment:
-      MONGO_INITDB_ROOT_USERNAME: smartautocheck
-      MONGO_INITDB_ROOT_PASSWORD: smartautocheck_pass
-      MONGO_INITDB_DATABASE: smartautocheck_db
-    ports:
-      - "27017:27017"
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
     volumes:
-      - mongodb_data:/data/db
+      - ./infrastructure/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
     networks:
       - smartautocheck-network
-    healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok", "-u", "smartautocheck", "-p", "smartautocheck_pass", "--authenticationDatabase", "admin"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    restart: unless-stopped
 
-  redis:
-    image: redis:7-alpine
-    container_name: smartautocheck-redis
+  loki:
+    image: grafana/loki:latest
+    container_name: smartautocheck-loki
     ports:
-      - "6379:6379"
+      - "3100:3100"
     volumes:
-      - redis_data:/data
+      - ./infrastructure/loki/loki-config.yml:/etc/loki/local-config.yaml
+    command: -config.file=/etc/loki/local-config.yaml
     networks:
       - smartautocheck-network
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    restart: unless-stopped
 
-  # Microservices
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: smartautocheck-jaeger
+    ports:
+      - "5775:5775/udp"
+      - "6831:6831/udp"
+      - "6832:6832/udp"
+      - "5778:5778"
+      - "16686:16686"
+      - "14268:14268"
+      - "14269:14269"
+      - "9411:9411"
+    environment:
+      COLLECTOR_OTLP_ENABLED: true
+    networks:
+      - smartautocheck-network
+    restart: unless-stopped
+
+  # ===========================================================================
+  # MICROSERVICES (5 Consolidated Services)
+  # ===========================================================================
+
   user-service:
     build:
       context: ./services/user-service
       dockerfile: Dockerfile
     container_name: smartautocheck-user-service
     ports:
-      - "3001:3000"
+      - "3001:3001"
     environment:
-      NODE_ENV: development
-      PORT: 3000
-      DATABASE_URL: postgresql://smartautocheck:smartautocheck_pass@postgres:5432/smartautocheck_db
-      JWT_SECRET: your-super-secret-jwt-key-change-in-production
-      KAFKA_BROKERS: kafka:9092
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 3001
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: smartautocheck
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: smartautocheck_db
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ACCESS_EXPIRY: ${JWT_ACCESS_EXPIRY:-15m}
+      JWT_REFRESH_EXPIRY: ${JWT_REFRESH_EXPIRY:-7d}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3010}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
     depends_on:
       postgres:
-        condition: service_healthy
-      kafka:
         condition: service_healthy
     networks:
       - smartautocheck-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3001/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   appointment-service:
     build:
@@ -128,39 +189,54 @@ services:
       dockerfile: Dockerfile
     container_name: smartautocheck-appointment-service
     ports:
-      - "3002:3000"
+      - "3002:3002"
     environment:
-      NODE_ENV: development
-      PORT: 3000
-      DATABASE_URL: postgresql://smartautocheck:smartautocheck_pass@postgres:5432/smartautocheck_db
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 3002
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: smartautocheck
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: smartautocheck_db
       KAFKA_BROKERS: kafka:9092
-      REDIS_URL: redis://redis:6379
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3010}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
     depends_on:
       postgres:
         condition: service_healthy
       kafka:
         condition: service_healthy
-      redis:
-        condition: service_healthy
     networks:
       - smartautocheck-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3002/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
-  payment-service:
+  payment-invoice-service:
     build:
-      context: ./services/payment-service
+      context: ./services/payment-invoice-service
       dockerfile: Dockerfile
-    container_name: smartautocheck-payment-service
+    container_name: smartautocheck-payment-invoice-service
     ports:
-      - "3003:3000"
+      - "3004:3004"
     environment:
-      NODE_ENV: development
-      PORT: 3000
-      DATABASE_URL: postgresql://smartautocheck:smartautocheck_pass@postgres:5432/smartautocheck_db
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 3004
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: smartautocheck
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: smartautocheck_db
       KAFKA_BROKERS: kafka:9092
-      PAYPAL_CLIENT_ID: ${PAYPAL_CLIENT_ID:-AeFunx4cWx2zm6aqtLmd7Zm4G4zGZ2BVLsRh83jGxqOPzPss6fMS2PRilid05SAUTipnYNPo_NghJrDX}
-      PAYPAL_CLIENT_SECRET: ${PAYPAL_CLIENT_SECRET:-EI_3xWZTdKXVuCGWA_ScRqUw4JHB4sdUgqecogjoWkttB6_NIg97iaDWdfonSg4_ILRARZVyodnS2-6F}
+      PAYPAL_CLIENT_ID: ${PAYPAL_CLIENT_ID}
+      PAYPAL_CLIENT_SECRET: ${PAYPAL_CLIENT_SECRET}
       PAYPAL_MODE: ${PAYPAL_MODE:-sandbox}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3010}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
     depends_on:
       postgres:
         condition: service_healthy
@@ -169,40 +245,33 @@ services:
     networks:
       - smartautocheck-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3004/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
-  document-service:
+  inspection-certification-service:
     build:
-      context: ./services/document-service
+      context: ./services/inspection-certification-service
       dockerfile: Dockerfile
-    container_name: smartautocheck-document-service
+    container_name: smartautocheck-inspection-certification-service
     ports:
-      - "3004:3000"
+      - "3005:3005"
     environment:
-      NODE_ENV: development
-      PORT: 3000
-      MONGODB_URI: mongodb://smartautocheck:smartautocheck_pass@mongodb:27017/smartautocheck_db?authSource=admin
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 3005
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: smartautocheck
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: smartautocheck_db
       KAFKA_BROKERS: kafka:9092
-    depends_on:
-      mongodb:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-    networks:
-      - smartautocheck-network
-    restart: unless-stopped
-
-  inspection-service:
-    build:
-      context: ./services/inspection-service
-      dockerfile: Dockerfile
-    container_name: smartautocheck-inspection-service
-    ports:
-      - "3005:3000"
-    environment:
-      NODE_ENV: development
-      PORT: 3000
-      DATABASE_URL: postgresql://smartautocheck:smartautocheck_pass@postgres:5432/smartautocheck_db
-      KAFKA_BROKERS: kafka:9092
+      CERTIFICATE_SECRET: ${CERTIFICATE_SECRET}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3010}
+      API_GATEWAY_URL: ${API_GATEWAY_URL:-http://api-gateway:3000}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
     depends_on:
       postgres:
         condition: service_healthy
@@ -211,99 +280,12 @@ services:
     networks:
       - smartautocheck-network
     restart: unless-stopped
-
-  certificate-service:
-    build:
-      context: ./services/certificate-service
-      dockerfile: Dockerfile
-    container_name: smartautocheck-certificate-service
-    ports:
-      - "3006:3000"
-    environment:
-      NODE_ENV: development
-      PORT: 3000
-      DATABASE_URL: postgresql://smartautocheck:smartautocheck_pass@postgres:5432/smartautocheck_db
-      KAFKA_BROKERS: kafka:9092
-      S3_BUCKET: smartautocheck-certificates
-      S3_REGION: us-east-1
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-    networks:
-      - smartautocheck-network
-    restart: unless-stopped
-
-  invoice-service:
-    build:
-      context: ./services/invoice-service
-      dockerfile: Dockerfile
-    container_name: smartautocheck-invoice-service
-    ports:
-      - "3007:3000"
-    environment:
-      NODE_ENV: development
-      PORT: 3000
-      DATABASE_URL: postgresql://smartautocheck:smartautocheck_pass@postgres:5432/smartautocheck_db
-      KAFKA_BROKERS: kafka:9092
-    depends_on:
-      postgres:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-    networks:
-      - smartautocheck-network
-    restart: unless-stopped
-
-  chatbot-service:
-    build:
-      context: ./services/chatbot-service
-      dockerfile: Dockerfile
-    container_name: smartautocheck-chatbot-service
-    ports:
-      - "3008:3000"
-    environment:
-      NODE_ENV: development
-      PORT: 3000
-      MONGODB_URI: mongodb://smartautocheck:smartautocheck_pass@mongodb:27017/smartautocheck_db?authSource=admin
-      KAFKA_BROKERS: kafka:9092
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-    depends_on:
-      mongodb:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-    networks:
-      - smartautocheck-network
-    restart: unless-stopped
-
-  notification-service:
-    build:
-      context: ./services/notification-service
-      dockerfile: Dockerfile
-    container_name: smartautocheck-notification-service
-    ports:
-      - "3009:3000"
-    environment:
-      NODE_ENV: development
-      PORT: 3000
-      REDIS_URL: redis://redis:6379
-      KAFKA_BROKERS: kafka:9092
-      SENDGRID_API_KEY: ${SENDGRID_API_KEY}
-      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
-      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
-      TWILIO_PHONE_NUMBER: ${TWILIO_PHONE_NUMBER}
-    depends_on:
-      redis:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-    networks:
-      - smartautocheck-network
-    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3005/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   api-gateway:
     build:
@@ -313,30 +295,33 @@ services:
     ports:
       - "3000:3000"
     environment:
-      NODE_ENV: development
+      NODE_ENV: ${NODE_ENV:-production}
       PORT: 3000
-      USER_SERVICE_URL: http://user-service:3000
-      APPOINTMENT_SERVICE_URL: http://appointment-service:3000
-      PAYMENT_SERVICE_URL: http://payment-service:3000
-      DOCUMENT_SERVICE_URL: http://document-service:3000
-      INSPECTION_SERVICE_URL: http://inspection-service:3000
-      CERTIFICATE_SERVICE_URL: http://certificate-service:3000
-      INVOICE_SERVICE_URL: http://invoice-service:3000
-      CHATBOT_SERVICE_URL: http://chatbot-service:3000
-      NOTIFICATION_SERVICE_URL: http://notification-service:3000
+      USER_SERVICE_URL: http://user-service:3001
+      APPOINTMENT_SERVICE_URL: http://appointment-service:3002
+      PAYMENT_INVOICE_SERVICE_URL: http://payment-invoice-service:3004
+      INSPECTION_CERTIFICATION_SERVICE_URL: http://inspection-certification-service:3005
+      JWT_SECRET: ${JWT_SECRET}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3010}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
     depends_on:
       - user-service
       - appointment-service
-      - payment-service
-      - document-service
-      - inspection-service
-      - certificate-service
-      - invoice-service
-      - chatbot-service
-      - notification-service
+      - payment-invoice-service
+      - inspection-certification-service
     networks:
       - smartautocheck-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ===========================================================================
+  # FRONTEND
+  # ===========================================================================
 
   frontend:
     build:
@@ -346,12 +331,19 @@ services:
     ports:
       - "3010:3000"
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:3000
+      NEXT_PUBLIC_API_URL: ${API_GATEWAY_URL:-http://localhost:3000}
+      NEXT_PUBLIC_PAYPAL_CLIENT_ID: ${PAYPAL_CLIENT_ID}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3010}
     depends_on:
       - api-gateway
     networks:
       - smartautocheck-network
     restart: unless-stopped
+
+# ===========================================================================
+# NETWORKS & VOLUMES
+# ===========================================================================
 
 networks:
   smartautocheck-network:
@@ -359,5 +351,5 @@ networks:
 
 volumes:
   postgres_data:
-  mongodb_data:
-  redis_data:
+  prometheus_data:
+  grafana_data:
