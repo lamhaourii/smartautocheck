@@ -330,11 +330,13 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:3001/api
     container_name: smartautocheck-frontend
     ports:
       - "3010:3000"
     environment:
-      NEXT_PUBLIC_API_URL: ${API_GATEWAY_URL:-http://localhost:3000}
+      NEXT_PUBLIC_API_URL: http://localhost:3001/api
       NEXT_PUBLIC_PAYPAL_CLIENT_ID: ${PAYPAL_CLIENT_ID}
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
       NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3010}
