@@ -42,10 +42,10 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen mesh-gradient flex items-center justify-center px-4 py-12">
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4 py-12">
       <div className="max-w-md w-full">
         {/* Back button */}
-        <Link href="/" className="inline-flex items-center text-gray-600 hover:text-gray-900 mb-8 transition">
+        <Link href="/" className="inline-flex items-center text-slate-600 hover:text-slate-900 mb-8 transition-colors">
           <ArrowLeft className="h-4 w-4 mr-2" />
           Back to home
         </Link>
@@ -54,19 +54,19 @@ export default function LoginPage() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
-          className="card"
+          className="card p-8"
         >
           {/* Logo */}
           <div className="flex justify-center mb-8">
-            <div className="bg-gradient-to-br from-blue-600 to-indigo-600 p-3 rounded-2xl">
+            <div className="bg-sky-600 p-3 rounded-lg">
               <Car className="h-10 w-10 text-white" />
             </div>
           </div>
 
-          <h1 className="text-3xl font-black text-center text-gray-900 mb-2">
-            Welcome Back!
+          <h1 className="text-3xl font-bold text-center text-slate-900 mb-2">
+            Welcome Back
           </h1>
-          <p className="text-center text-gray-600 mb-8">
+          <p className="text-center text-slate-600 mb-8">
             Sign in to manage your inspections
           </p>
 
@@ -81,36 +81,36 @@ export default function LoginPage() {
             </motion.div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-slate-700 mb-2">
                 Email Address
               </label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
                 <input
                   type="email"
                   required
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="w-full pl-11 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-transparent transition"
+                  className="input-field pl-11"
                   placeholder="you@example.com"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-slate-700 mb-2">
                 Password
               </label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
                 <input
                   type="password"
                   required
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  className="w-full pl-11 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-transparent transition"
+                  className="input-field pl-11"
                   placeholder="••••••••"
                 />
               </div>
@@ -118,10 +118,10 @@ export default function LoginPage() {
 
             <div className="flex items-center justify-between">
               <label className="flex items-center">
-                <input type="checkbox" className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-600" />
-                <span className="ml-2 text-sm text-gray-600">Remember me</span>
+                <input type="checkbox" className="w-4 h-4 text-sky-600 border-slate-300 rounded focus:ring-sky-600" />
+                <span className="ml-2 text-sm text-slate-600">Remember me</span>
               </label>
-              <Link href="/auth/forgot-password" className="text-sm font-semibold text-blue-600 hover:text-blue-700 transition">
+              <Link href="/auth/forgot-password" className="text-sm font-medium link">
                 Forgot password?
               </Link>
             </div>
@@ -129,32 +129,32 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full btn-primary flex items-center justify-center"
+              className="w-full btn-primary justify-center"
             >
               {loading ? (
                 <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
               ) : (
                 <>
-                  <LogIn className="h-5 w-5 mr-2" />
+                  <LogIn className="h-5 w-5" />
                   Sign In
                 </>
               )}
             </button>
           </form>
 
-          <div className="mt-8 text-center">
-            <p className="text-gray-600">
+          <div className="mt-6 text-center">
+            <p className="text-slate-600">
               Don't have an account?{' '}
-              <Link href="/auth/register" className="font-semibold text-blue-600 hover:text-blue-700 transition">
+              <Link href="/auth/register" className="link">
                 Sign up for free
               </Link>
             </p>
           </div>
 
           {/* Demo accounts */}
-          <div className="mt-8 p-4 bg-blue-50 rounded-xl border border-blue-200">
-            <p className="text-sm font-semibold text-blue-900 mb-2">🔑 Demo Accounts:</p>
-            <div className="space-y-1 text-xs text-blue-800">
+          <div className="mt-6 p-4 bg-sky-50 rounded-lg border border-sky-200">
+            <p className="text-sm font-semibold text-sky-900 mb-2">Demo Accounts:</p>
+            <div className="space-y-1 text-xs text-slate-700">
               <p><strong>Customer:</strong> customer@smartautocheck.com / Password123!</p>
               <p><strong>Inspector:</strong> inspector@smartautocheck.com / Password123!</p>
               <p><strong>Admin:</strong> admin@smartautocheck.com / Password123!</p>
@@ -162,8 +162,8 @@ export default function LoginPage() {
           </div>
         </motion.div>
 
-        <p className="text-center text-sm text-gray-500 mt-8">
-          🔒 Secured with industry-standard encryption
+        <p className="text-center text-sm text-slate-500 mt-6">
+          Secured with industry-standard encryption
         </p>
       </div>
     </div>

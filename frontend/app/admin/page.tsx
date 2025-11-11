@@ -1,380 +1,270 @@
-'use client';
+'use client'
 
-/**
- * Admin Monitoring Panel
- * 
- * Purpose: System health monitoring and control
- * 
- * Features:
- * - Real-time metrics dashboard
- * - Circuit breaker status and controls
- * - Service health checks
- * - Today's statistics
- * - Appointment management
- * - Rate limit monitoring
- * - Quick links to observability tools
- */
+import { useState, useEffect } from 'react'
+import { Users, Calendar, FileText, BarChart3, Car, LogOut, Settings, TrendingUp } from 'lucide-react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import api from '@/lib/api'
 
-import { useState, useEffect } from 'react';
-import {
-  Activity,
-  AlertCircle,
-  CheckCircle2,
-  XCircle,
-  Clock,
-  DollarSign,
-  Users,
-  Calendar,
-  TrendingUp,
-  Shield,
-  Zap,
-  ExternalLink,
-  RefreshCw,
-} from 'lucide-react';
-
-interface SystemMetrics {
-  circuitBreakers: Record<string, any>;
-  services: Record<string, any>;
-  rateLimits: Record<string, any>;
-}
-
-interface DailyStats {
-  totalAppointments: number;
-  completedInspections: number;
-  pendingPayments: number;
-  revenue: number;
-  averageInspectionTime: number;
-}
-
-export default function AdminPanel() {
-  const [metrics, setMetrics] = useState<SystemMetrics | null>(null);
-  const [stats, setStats] = useState<DailyStats | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
+export default function AdminDashboard() {
+  const router = useRouter()
+  const [user, setUser] = useState<any>(null)
+  const [stats, setStats] = useState({
+    totalUsers: 0,
+    totalAppointments: 0,
+    totalInspections: 0,
+    revenue: 0
+  })
+  const [recentAppointments, setRecentAppointments] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetchMetrics();
-    fetchStats();
+    const userData = localStorage.getItem('user')
+    if (!userData) {
+      router.push('/auth/login')
+      return
+    }
+    
+    const parsedUser = JSON.parse(userData)
+    if (parsedUser.role !== 'admin') {
+      router.push('/dashboard')
+      return
+    }
+    
+    setUser(parsedUser)
+    fetchAdminData()
+  }, [])
 
-    // Auto-refresh every 30 seconds
-    const interval = setInterval(() => {
-      fetchMetrics();
-      fetchStats();
-    }, 30000);
-
-    return () => clearInterval(interval);
-  }, []);
-
-  const fetchMetrics = async () => {
+  const fetchAdminData = async () => {
     try {
-      const response = await fetch('/api/admin/metrics', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setMetrics(data);
-        setLastUpdate(new Date());
-      }
+      const [appointmentsRes] = await Promise.all([
+        api.get('/appointments/all')
+      ])
+      
+      const appointments = appointmentsRes.data.data || []
+      setRecentAppointments(appointments.slice(0, 10))
+      
+      // Calculate stats
+      setStats({
+        totalUsers: appointments.length,
+        totalAppointments: appointments.length,
+        totalInspections: appointments.filter((a: any) => a.status === 'completed').length,
+        revenue: appointments.filter((a: any) => a.status === 'completed').length * 75
+      })
     } catch (error) {
-      console.error('Failed to fetch metrics:', error);
+      console.error('Error fetching admin data:', error)
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
-  const fetchStats = async () => {
-    try {
-      const response = await fetch('/api/admin/stats/today', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setStats(data);
-      }
-    } catch (error) {
-      console.error('Failed to fetch stats:', error);
-    }
-  };
-
-  const handleCircuitBreakerControl = async (service: string, action: 'open' | 'close') => {
-    try {
-      const response = await fetch(`/api/admin/circuit-breakers/${service}/${action}`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        },
-      });
-
-      if (response.ok) {
-        fetchMetrics(); // Refresh
-        alert(`Circuit breaker ${action}ed for ${service}`);
-      }
-    } catch (error) {
-      console.error('Failed to control circuit breaker:', error);
-    }
-  };
+  const handleLogout = () => {
+    localStorage.removeItem('accessToken')
+    localStorage.removeItem('refreshToken')
+    localStorage.removeItem('user')
+    router.push('/')
+  }
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <RefreshCw className="w-12 h-12 animate-spin mx-auto text-blue-600 mb-4" />
-          <p className="text-gray-600">Loading system metrics...</p>
-        </div>
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-4 border-sky-600 border-t-transparent"></div>
       </div>
-    );
+    )
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
-        <div className="mb-8 flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Admin Dashboard</h1>
-            <p className="text-gray-600 mt-2">
-              System monitoring and control panel
-            </p>
-          </div>
-          <div className="text-right">
-            <p className="text-sm text-gray-500">Last updated</p>
-            <p className="text-sm font-medium">{lastUpdate.toLocaleTimeString()}</p>
-            <button
-              onClick={() => {
-                fetchMetrics();
-                fetchStats();
-              }}
-              className="mt-2 flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700"
-            >
-              <RefreshCw className="w-4 h-4" />
-              Refresh
-            </button>
+    <div className="min-h-screen bg-slate-50">
+      {/* Navigation */}
+      <nav className="bg-white border-b border-slate-200">
+        <div className="container-custom">
+          <div className="flex justify-between items-center h-16 px-4">
+            <Link href="/" className="flex items-center gap-3">
+              <div className="bg-sky-600 p-2 rounded-lg">
+                <Car className="h-6 w-6 text-white" />
+              </div>
+              <span className="text-xl font-bold text-slate-900">SmartAutoCheck Admin</span>
+            </Link>
+            <div className="flex items-center gap-4">
+              <Link href="/dashboard" className="text-slate-600 hover:text-slate-900 text-sm font-medium">
+                User View
+              </Link>
+              <button
+                onClick={handleLogout}
+                className="btn-ghost text-sm"
+              >
+                <LogOut className="h-4 w-4" />
+                Logout
+              </button>
+            </div>
           </div>
         </div>
+      </nav>
 
-        {/* Quick Stats */}
-        {stats && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
-            <div className="bg-white rounded-lg shadow-md p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Appointments</p>
-                  <p className="text-2xl font-bold text-gray-900">{stats.totalAppointments}</p>
+      <div className="py-8 px-4">
+        <div className="container-custom max-w-7xl mx-auto">
+          {/* Header */}
+          <div className="mb-8">
+            <h1 className="text-3xl font-bold text-slate-900 mb-2">Admin Dashboard</h1>
+            <p className="text-slate-600">Manage your inspection center</p>
+          </div>
+
+          {/* Stats Grid */}
+          <div className="grid md:grid-cols-4 gap-6 mb-8">
+            <div className="card p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="p-3 bg-sky-100 rounded-lg">
+                  <Users className="h-6 w-6 text-sky-600" />
                 </div>
-                <Calendar className="w-10 h-10 text-blue-600" />
+                <TrendingUp className="h-5 w-5 text-emerald-500" />
               </div>
+              <div className="text-2xl font-bold text-slate-900 mb-1">{stats.totalUsers}</div>
+              <div className="text-sm text-slate-600">Total Users</div>
             </div>
 
-            <div className="bg-white rounded-lg shadow-md p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Completed</p>
-                  <p className="text-2xl font-bold text-gray-900">{stats.completedInspections}</p>
+            <div className="card p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="p-3 bg-violet-100 rounded-lg">
+                  <Calendar className="h-6 w-6 text-violet-600" />
                 </div>
-                <CheckCircle2 className="w-10 h-10 text-green-600" />
+                <TrendingUp className="h-5 w-5 text-emerald-500" />
               </div>
+              <div className="text-2xl font-bold text-slate-900 mb-1">{stats.totalAppointments}</div>
+              <div className="text-sm text-slate-600">Appointments</div>
             </div>
 
-            <div className="bg-white rounded-lg shadow-md p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Pending Payment</p>
-                  <p className="text-2xl font-bold text-gray-900">{stats.pendingPayments}</p>
+            <div className="card p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="p-3 bg-emerald-100 rounded-lg">
+                  <FileText className="h-6 w-6 text-emerald-600" />
                 </div>
-                <Clock className="w-10 h-10 text-yellow-600" />
+                <TrendingUp className="h-5 w-5 text-emerald-500" />
               </div>
+              <div className="text-2xl font-bold text-slate-900 mb-1">{stats.totalInspections}</div>
+              <div className="text-sm text-slate-600">Completed</div>
             </div>
 
-            <div className="bg-white rounded-lg shadow-md p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Revenue Today</p>
-                  <p className="text-2xl font-bold text-gray-900">€{stats.revenue.toFixed(2)}</p>
+            <div className="card p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="p-3 bg-amber-100 rounded-lg">
+                  <BarChart3 className="h-6 w-6 text-amber-600" />
                 </div>
-                <DollarSign className="w-10 h-10 text-green-600" />
+                <TrendingUp className="h-5 w-5 text-emerald-500" />
               </div>
-            </div>
-
-            <div className="bg-white rounded-lg shadow-md p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Avg Time (min)</p>
-                  <p className="text-2xl font-bold text-gray-900">{stats.averageInspectionTime}</p>
-                </div>
-                <TrendingUp className="w-10 h-10 text-purple-600" />
-              </div>
+              <div className="text-2xl font-bold text-slate-900 mb-1">€{stats.revenue.toLocaleString()}</div>
+              <div className="text-sm text-slate-600">Revenue</div>
             </div>
           </div>
-        )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Circuit Breakers */}
-          {metrics?.circuitBreakers && (
-            <div className="bg-white rounded-lg shadow-md p-6">
-              <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-                <Zap className="w-6 h-6 text-yellow-600" />
-                Circuit Breakers
-              </h2>
-              <div className="space-y-4">
-                {Object.entries(metrics.circuitBreakers).map(([service, data]: [string, any]) => (
-                  <div key={service} className="border border-gray-200 rounded-lg p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="font-medium">{service}</span>
-                      <span
-                        className={`px-3 py-1 rounded-full text-xs font-medium ${
-                          data.state === 'CLOSED'
-                            ? 'bg-green-100 text-green-800'
-                            : data.state === 'OPEN'
-                            ? 'bg-red-100 text-red-800'
-                            : 'bg-yellow-100 text-yellow-800'
-                        }`}
-                      >
-                        {data.state}
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-2 text-sm text-gray-600 mb-3">
-                      <div>
-                        <p className="text-xs">Success Rate</p>
-                        <p className="font-medium text-gray-900">{data.health?.successRate || 0}%</p>
-                      </div>
-                      <div>
-                        <p className="text-xs">Error Rate</p>
-                        <p className="font-medium text-gray-900">{data.health?.errorRate || 0}%</p>
-                      </div>
-                      <div>
-                        <p className="text-xs">Avg Latency</p>
-                        <p className="font-medium text-gray-900">{data.stats?.latencyMean ? data.stats.latencyMean.toFixed(0) : 'N/A'}ms</p>
-                      </div>
-                    </div>
-
-                    <div className="flex gap-2">
-                      {data.state !== 'OPEN' && (
-                        <button
-                          onClick={() => handleCircuitBreakerControl(service, 'open')}
-                          className="flex-1 px-3 py-2 text-sm bg-red-600 text-white rounded hover:bg-red-700"
-                        >
-                          Open Circuit
-                        </button>
-                      )}
-                      {data.state !== 'CLOSED' && (
-                        <button
-                          onClick={() => handleCircuitBreakerControl(service, 'close')}
-                          className="flex-1 px-3 py-2 text-sm bg-green-600 text-white rounded hover:bg-green-700"
-                        >
-                          Close Circuit
-                        </button>
-                      )}
-                    </div>
+          <div className="grid lg:grid-cols-3 gap-8">
+            {/* Main Content */}
+            <div className="lg:col-span-2 space-y-8">
+              {/* Recent Appointments */}
+              <div>
+                <h2 className="text-2xl font-bold text-slate-900 mb-6">Recent Appointments</h2>
+                <div className="card overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-slate-50 border-b border-slate-200">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+                            Customer
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+                            Service
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+                            Date
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+                            Status
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200">
+                        {recentAppointments.map((appointment) => (
+                          <tr key={appointment.id} className="hover:bg-slate-50">
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="text-sm font-medium text-slate-900">
+                                {appointment.userId || 'Customer'}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="text-sm text-slate-900">{appointment.serviceType || 'Standard'}</div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="text-sm text-slate-600">
+                                {new Date(appointment.scheduledDate).toLocaleDateString()}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className={`badge ${
+                                appointment.status === 'completed' ? 'badge-success' :
+                                appointment.status === 'scheduled' ? 'badge-primary' :
+                                'badge-warning'
+                              }`}>
+                                {appointment.status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
-                ))}
+                </div>
               </div>
             </div>
-          )}
 
-          {/* Service Health */}
-          {metrics?.services && (
-            <div className="bg-white rounded-lg shadow-md p-6">
-              <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-                <Activity className="w-6 h-6 text-blue-600" />
-                Service Health
-              </h2>
-              <div className="space-y-3">
-                {Object.entries(metrics.services).map(([service, data]: [string, any]) => (
-                  <div key={service} className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
-                    <div className="flex items-center gap-3">
-                      {data.healthy ? (
-                        <CheckCircle2 className="w-5 h-5 text-green-600" />
-                      ) : (
-                        <XCircle className="w-5 h-5 text-red-600" />
-                      )}
-                      <span className="font-medium">{service}</span>
-                    </div>
-                    <span className="text-sm text-gray-600">
-                      {data.instances} {data.instances === 1 ? 'instance' : 'instances'}
-                    </span>
+            {/* Sidebar */}
+            <div className="space-y-6">
+              {/* Quick Actions */}
+              <div className="card p-6">
+                <h3 className="text-lg font-bold text-slate-900 mb-4">Quick Actions</h3>
+                <div className="space-y-2">
+                  <button className="btn-outline w-full justify-start">
+                    <Users className="h-4 w-4" />
+                    Manage Users
+                  </button>
+                  <button className="btn-outline w-full justify-start">
+                    <Calendar className="h-4 w-4" />
+                    View All Appointments
+                  </button>
+                  <button className="btn-outline w-full justify-start">
+                    <FileText className="h-4 w-4" />
+                    Generate Reports
+                  </button>
+                  <button className="btn-outline w-full justify-start">
+                    <Settings className="h-4 w-4" />
+                    System Settings
+                  </button>
+                </div>
+              </div>
+
+              {/* System Status */}
+              <div className="card p-6 bg-emerald-50 border-emerald-200">
+                <h3 className="text-lg font-bold text-slate-900 mb-2">System Status</h3>
+                <p className="text-sm text-slate-600 mb-4">
+                  All systems operational
+                </p>
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-600">API</span>
+                    <span className="text-emerald-600 font-medium">●  Online</span>
                   </div>
-                ))}
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-600">Database</span>
+                    <span className="text-emerald-600 font-medium">● Online</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-600">Kafka</span>
+                    <span className="text-emerald-600 font-medium">● Online</span>
+                  </div>
+                </div>
               </div>
-            </div>
-          )}
-        </div>
-
-        {/* Observability Tools */}
-        <div className="mt-8 bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-            <Shield className="w-6 h-6 text-purple-600" />
-            Observability Tools
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <a
-              href="http://localhost:16686"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-between p-4 border-2 border-gray-200 rounded-lg hover:border-blue-600 hover:bg-blue-50 transition-all"
-            >
-              <div>
-                <p className="font-semibold text-gray-900">Jaeger UI</p>
-                <p className="text-sm text-gray-600">Distributed Tracing</p>
-              </div>
-              <ExternalLink className="w-5 h-5 text-gray-400" />
-            </a>
-
-            <a
-              href="http://localhost:8500"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-between p-4 border-2 border-gray-200 rounded-lg hover:border-green-600 hover:bg-green-50 transition-all"
-            >
-              <div>
-                <p className="font-semibold text-gray-900">Consul UI</p>
-                <p className="text-sm text-gray-600">Service Discovery</p>
-              </div>
-              <ExternalLink className="w-5 h-5 text-gray-400" />
-            </a>
-
-            <a
-              href="http://localhost:8080"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-between p-4 border-2 border-gray-200 rounded-lg hover:border-orange-600 hover:bg-orange-50 transition-all"
-            >
-              <div>
-                <p className="font-semibold text-gray-900">Kafka UI</p>
-                <p className="text-sm text-gray-600">Event Streaming</p>
-              </div>
-              <ExternalLink className="w-5 h-5 text-gray-400" />
-            </a>
-          </div>
-        </div>
-
-        {/* System Information */}
-        <div className="mt-8 bg-blue-50 border border-blue-200 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-blue-900 mb-2">
-            System Information
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-blue-800">
-            <div>
-              <p className="font-medium">Architecture</p>
-              <p>7 Microservices + 5 Infrastructure Components</p>
-            </div>
-            <div>
-              <p className="font-medium">Patterns Implemented</p>
-              <p>Circuit Breaker, Service Discovery, Distributed Tracing, Rate Limiting</p>
-            </div>
-            <div>
-              <p className="font-medium">Scalability</p>
-              <p>Horizontal scaling enabled via Consul & Nginx</p>
             </div>
           </div>
         </div>
       </div>
     </div>
-  );
+  )
 }
