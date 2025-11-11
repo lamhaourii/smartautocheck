@@ -1,16 +1,18 @@
 'use client'
 
-import { CheckCircle, Clock, Shield, Car, ArrowRight, Calendar, Star } from 'lucide-react'
+import { CheckCircle, Clock, Shield, Car, ArrowRight, Calendar, Star, Loader2 } from 'lucide-react'
 import Link from 'next/link'
 import { useState, useEffect } from 'react'
+import { StatsSkeleton } from '@/components/ui/skeleton'
 
 export default function HomePage() {
   const [availableSlots, setAvailableSlots] = useState<number>(12)
   const [stats, setStats] = useState({ inspections: 0, customers: 0 })
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetchAvailableSlots()
-    fetchStats()
+    Promise.all([fetchAvailableSlots(), fetchStats()])
+      .finally(() => setLoading(false))
   }, [])
 
   const fetchAvailableSlots = async () => {
@@ -89,20 +91,24 @@ export default function HomePage() {
             </div>
 
             {/* Stats */}
-            <div className="grid grid-cols-3 gap-8 max-w-2xl mx-auto">
-              <div className="text-center">
-                <div className="text-3xl font-bold text-slate-900">{availableSlots}</div>
-                <div className="text-sm text-slate-600 mt-1">Slots Available Today</div>
+            {loading ? (
+              <StatsSkeleton />
+            ) : (
+              <div className="grid grid-cols-3 gap-8 max-w-2xl mx-auto animate-fade-in">
+                <div className="text-center group cursor-default">
+                  <div className="text-3xl font-bold text-slate-900 group-hover:text-sky-600 transition-colors">{availableSlots}</div>
+                  <div className="text-sm text-slate-600 mt-1">Slots Available Today</div>
+                </div>
+                <div className="text-center group cursor-default">
+                  <div className="text-3xl font-bold text-slate-900 group-hover:text-sky-600 transition-colors">30min</div>
+                  <div className="text-sm text-slate-600 mt-1">Average Time</div>
+                </div>
+                <div className="text-center group cursor-default">
+                  <div className="text-3xl font-bold text-slate-900 group-hover:text-sky-600 transition-colors">4.9★</div>
+                  <div className="text-sm text-slate-600 mt-1">Customer Rating</div>
+                </div>
               </div>
-              <div className="text-center">
-                <div className="text-3xl font-bold text-slate-900">30min</div>
-                <div className="text-sm text-slate-600 mt-1">Average Time</div>
-              </div>
-              <div className="text-center">
-                <div className="text-3xl font-bold text-slate-900">4.9★</div>
-                <div className="text-sm text-slate-600 mt-1">Customer Rating</div>
-              </div>
-            </div>
+            )}
           </div>
         </div>
       </section>

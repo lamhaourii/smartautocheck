@@ -1,9 +1,0 @@
-{
-  "name": "@smartautocheck/common",
-  "version": "1.0.0",
-  "description": "Shared common utilities and types",
-  "main": "index.js",
-  "dependencies": {
-    "joi": "^17.11.0"
-  }
-}

@@ -4,7 +4,12 @@ const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const UserModel = require('../models/user.model');
 const Joi = require('joi');
-const { sendWelcomeEmail, sendPasswordReset, sendVerificationEmail } = require('@smartautocheck/notifications');
+// const { sendWelcomeEmail, sendPasswordReset, sendVerificationEmail } = require('@smartautocheck/notifications');
+
+// Mock notification functions (TODO: implement proper notification service)
+const sendWelcomeEmail = async () => console.log('Welcome email would be sent');
+const sendPasswordReset = async () => console.log('Password reset email would be sent');
+const sendVerificationEmail = async () => console.log('Verification email would be sent');
 
 // Validation schemas
 const registerSchema = Joi.object({

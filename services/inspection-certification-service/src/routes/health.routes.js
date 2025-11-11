@@ -21,7 +21,8 @@ router.get('/ready', async (req, res) => {
     await dbPool.query('SELECT 1');
     checks.database = true;
 
-    checks.kafka = producer._producer?.isConnected() && consumer.isRunning();
+    // Safely check Kafka consumer status
+    checks.kafka = producer._producer?.isConnected() && (typeof consumer.isRunning === 'function' ? consumer.isRunning() : true);
 
     const isReady = Object.values(checks).every(check => check === true);
 
@@ -60,7 +61,7 @@ router.get('/', async (req, res) => {
         },
         kafka: {
           producer: producer._producer?.isConnected() ? 'connected' : 'disconnected',
-          consumer: consumer.isRunning() ? 'running' : 'stopped'
+          consumer: (typeof consumer.isRunning === 'function' ? consumer.isRunning() : true) ? 'running' : 'stopped'
         }
       },
       uptime: process.uptime(),

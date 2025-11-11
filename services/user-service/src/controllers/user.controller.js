@@ -10,8 +10,9 @@ const updateSchema = Joi.object({
 class UserController {
   static async getUser(req, res, next) {
     try {
-      const { id } = req.params;
-      const user = await UserModel.findById(id);
+      // Support /me endpoint to get current user
+      const userId = req.params.id === 'me' ? req.user.userId : req.params.id;
+      const user = await UserModel.findById(userId);
 
       if (!user) {
         return res.status(404).json({

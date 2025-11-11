@@ -2,14 +2,20 @@ const AppointmentModel = require('../models/appointment.model');
 const Joi = require('joi');
 const { kafkaService, TOPICS, EVENT_TYPES } = require('../config/kafka');
 const redisClient = require('../config/redis');
+const db = require('../config/database');
 
 const createSchema = Joi.object({
-  userId: Joi.string().uuid().required(),
-  vehicleId: Joi.string().uuid().required(),
+  vehicleId: Joi.string().uuid().optional(),
+  vehicleInfo: Joi.object({
+    registrationNumber: Joi.string().required(),
+    make: Joi.string().required(),
+    model: Joi.string().required(),
+    year: Joi.number().integer().min(1900).max(new Date().getFullYear() + 1).required()
+  }).optional(),
   scheduledDate: Joi.date().iso().greater('now').required(),
   serviceType: Joi.string().required(),
   notes: Joi.string().optional()
-});
+}).xor('vehicleId', 'vehicleInfo');
 
 const updateSchema = Joi.object({
   scheduledDate: Joi.date().iso().optional(),
@@ -21,6 +27,15 @@ const updateSchema = Joi.object({
 class AppointmentController {
   static async createAppointment(req, res, next) {
     try {
+      // Extract userId from JWT token
+      const userId = req.user?.userId;
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Authentication required'
+        });
+      }
+
       const { error, value } = createSchema.validate(req.body);
       if (error) {
         return res.status(400).json({
@@ -28,6 +43,32 @@ class AppointmentController {
           message: 'Validation error',
           errors: error.details
         });
+      }
+
+      let vehicleId = value.vehicleId;
+
+      // If vehicleInfo is provided, create or find the vehicle
+      if (value.vehicleInfo) {
+        const { registrationNumber, make, model, year } = value.vehicleInfo;
+        
+        // Check if vehicle already exists
+        const existingVehicle = await db.query(
+          'SELECT id FROM vehicles WHERE registration_number = $1 AND user_id = $2',
+          [registrationNumber, userId]
+        );
+
+        if (existingVehicle.rows.length > 0) {
+          vehicleId = existingVehicle.rows[0].id;
+        } else {
+          // Create new vehicle
+          const newVehicle = await db.query(
+            `INSERT INTO vehicles (user_id, registration_number, make, model, year)
+             VALUES ($1, $2, $3, $4, $5)
+             RETURNING id`,
+            [userId, registrationNumber, make, model, year]
+          );
+          vehicleId = newVehicle.rows[0].id;
+        }
       }
 
       // Check availability
@@ -41,7 +82,15 @@ class AppointmentController {
         });
       }
 
-      const appointment = await AppointmentModel.create(value);
+      const appointmentData = {
+        userId,
+        vehicleId,
+        scheduledDate: value.scheduledDate,
+        serviceType: value.serviceType,
+        notes: value.notes
+      };
+
+      const appointment = await AppointmentModel.create(appointmentData);
 
       // Publish event to Kafka
       const kafka = kafkaService();

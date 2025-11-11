@@ -160,6 +160,7 @@ services:
     environment:
       NODE_ENV: ${NODE_ENV:-production}
       PORT: 3001
+      DATABASE_URL: postgresql://smartautocheck:${POSTGRES_PASSWORD}@postgres:5432/smartautocheck_db
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_USER: smartautocheck
@@ -193,12 +194,14 @@ services:
     environment:
       NODE_ENV: ${NODE_ENV:-production}
       PORT: 3002
+      DATABASE_URL: postgresql://smartautocheck:${POSTGRES_PASSWORD}@postgres:5432/smartautocheck_db
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_USER: smartautocheck
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: smartautocheck_db
       KAFKA_BROKERS: kafka:9092
+      JWT_SECRET: ${JWT_SECRET}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3010}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     depends_on:

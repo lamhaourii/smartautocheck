@@ -1,6 +1,10 @@
 const cron = require('cron');
 const db = require('../config/database');
-const { sendAppointmentReminder, sendAppointmentReminderSMS } = require('@smartautocheck/notifications');
+// const { sendAppointmentReminder, sendAppointmentReminderSMS } = require('@smartautocheck/notifications');
+
+// Mock notification functions (TODO: implement proper notification service)
+const sendAppointmentReminder = async () => console.log('Appointment reminder email would be sent');
+const sendAppointmentReminderSMS = async () => console.log('Appointment reminder SMS would be sent');
 
 /**
  * Cron job to send appointment reminders

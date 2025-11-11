@@ -5,13 +5,17 @@ import { Calendar, Clock, Car, Upload, ArrowRight, ArrowLeft, CheckCircle, Alert
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import api from '@/lib/api'
+import { useToast } from '@/hooks/useToast'
+import { ToastContainer } from '@/components/ui/toast'
 
 export default function BookingPage() {
   const router = useRouter()
+  const { toasts, removeToast, success, error: showError, warning } = useToast()
   const [step, setStep] = useState(1)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [availableSlots, setAvailableSlots] = useState<string[]>([])
+  const [loadingSlots, setLoadingSlots] = useState(false)
   const [formData, setFormData] = useState({
     serviceType: 'standard',
     date: '',
@@ -36,12 +40,19 @@ export default function BookingPage() {
   }, [formData.date, step])
 
   const fetchAvailableSlots = async () => {
+    setLoadingSlots(true)
     try {
       const response = await api.get(`/appointments/available?date=${formData.date}`)
       setAvailableSlots(response.data.slots || [])
+      if (response.data.slots && response.data.slots.length === 0) {
+        warning('No available slots for this date. Please select another date.')
+      }
     } catch (err) {
       console.error('Error fetching slots:', err)
       setAvailableSlots(['09:00', '10:00', '11:00', '14:00', '15:00', '16:00'])
+      warning('Could not load available slots. Showing default times.')
+    } finally {
+      setLoadingSlots(false)
     }
   }
 
@@ -50,18 +61,24 @@ export default function BookingPage() {
     
     if (step === 1 && !formData.serviceType) {
       setError('Please select a service')
+      showError('Please select a service to continue')
       return
     }
     if (step === 2 && (!formData.date || !formData.time)) {
       setError('Please select date and time')
+      showError('Please select both date and time to continue')
       return
     }
     if (step === 3 && (!formData.vehicleReg || !formData.make || !formData.model || !formData.year)) {
       setError('Please fill in all vehicle details')
+      showError('Please complete all required vehicle information')
       return
     }
     
-    if (step < 4) setStep(step + 1)
+    if (step < 4) {
+      setStep(step + 1)
+      success('Step completed!')
+    }
   }
 
   const handleSubmit = async () => {
@@ -83,10 +100,14 @@ export default function BookingPage() {
 
       const response = await api.post('/appointments', appointmentData)
       
-      // Redirect to payment or dashboard
-      router.push(`/dashboard?booking=success&id=${response.data.data.id}`)
+      success('Booking created successfully!')
+      setTimeout(() => {
+        router.push(`/dashboard?booking=success&id=${response.data.data.id}`)
+      }, 1000)
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to create booking. Please try again.')
+      const errorMsg = err.response?.data?.message || 'Failed to create booking. Please try again.'
+      setError(errorMsg)
+      showError(errorMsg)
     } finally {
       setLoading(false)
     }
@@ -96,6 +117,8 @@ export default function BookingPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
+      <ToastContainer toasts={toasts} onClose={removeToast} />
+      
       {/* Header */}
       <nav className="bg-white border-b border-slate-200">
         <div className="container-custom">
@@ -222,21 +245,29 @@ export default function BookingPage() {
                     <label className="block text-sm font-medium text-slate-700 mb-2">
                       Available Time Slots
                     </label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {availableSlots.map((slot) => (
-                        <button
-                          key={slot}
-                          onClick={() => setFormData({ ...formData, time: slot })}
-                          className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                            formData.time === slot
-                              ? 'bg-sky-600 text-white'
-                              : 'bg-white border border-slate-300 text-slate-700 hover:border-sky-600'
-                          }`}
-                        >
-                          {slot}
-                        </button>
-                      ))}
-                    </div>
+                    {loadingSlots ? (
+                      <div className="flex items-center justify-center py-8">
+                        <div className="animate-spin rounded-full h-8 w-8 border-2 border-sky-600 border-t-transparent" />
+                      </div>
+                    ) : availableSlots.length === 0 ? (
+                      <p className="text-sm text-slate-600 py-4">No slots available for this date</p>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-2">
+                        {availableSlots.map((slot) => (
+                          <button
+                            key={slot}
+                            onClick={() => setFormData({ ...formData, time: slot })}
+                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all transform hover:scale-105 ${
+                              formData.time === slot
+                                ? 'bg-sky-600 text-white shadow-md'
+                                : 'bg-white border border-slate-300 text-slate-700 hover:border-sky-600'
+                            }`}
+                          >
+                            {slot}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
