@@ -38,10 +38,10 @@ export default function AdminDashboard() {
   const fetchAdminData = async () => {
     try {
       const [appointmentsRes] = await Promise.all([
-        api.get('/appointments/all')
-      ])
+        api.get('/appointments?limit=100')
+      ]);
       
-      const appointments = appointmentsRes.data.data || []
+      const appointments = appointmentsRes.data.data || [];
       setRecentAppointments(appointments.slice(0, 10))
       
       // Calculate stats
